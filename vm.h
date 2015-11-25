@@ -48,13 +48,24 @@ typedef struct FaultMsg {
     // Add more stuff here.
 } FaultMsg;
 
-/* Frame Table Entry */
-typedef struct FTE {
-    int frame;
+/* 
+ * Frame table entry 
+ */
+struct FTE {
     int state;
     int pid;
     int page;
-    FTE* nextFTE; 
 } FTE;
+
+/* 
+ * Block table
+ */
+typedef struct Block Block;
+struct Block {
+	int blockNum;
+	int track;
+	int sector;
+	Block *nextBlock;
+};
 
 #define CheckMode() assert(USLOSS_PsrGet() & USLOSS_PSR_CURRENT_MODE)

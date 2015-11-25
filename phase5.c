@@ -7,6 +7,7 @@
 #include <usyscall.h>
 #include <libuser.h>
 #include <vm.h>
+#include <provided_prototypes.h>
 #include <string.h>
 
 /*
@@ -16,15 +17,7 @@
  * Authors: Alex Ewing, Andre Takagi
  */
 
-// Extern functions (in libuser.c I think)
-extern void mbox_create(sysargs *args_ptr);
-extern void mbox_release(sysargs *args_ptr);
-extern void mbox_send(sysargs *args_ptr);
-extern void mbox_receive(sysargs *args_ptr);
-extern void mbox_condsend(sysargs *args_ptr);
-extern void mbox_condreceive(sysargs *args_ptr);
-
-// Globals
+/******************** Globals ********************/
 int debugflag5 = 0;
 
 int vmOn = 0; // if the vm has already been started
@@ -36,25 +29,36 @@ int numPagers = 0;
 
 int faultBox; // fault Mailbox for pagers
 
-int pagerPids[4];
-
+int pagerPids[MAXPAGERS];
+Process procTable[MAXPROC];
 FTE *frameTable;
-FTE *freeFrames;
+Block *blockTable;
+int lastFrameIndex= 0;
 
 void *region;
 
 VmStats  vmStats;
-static Process processes[MAXPROC];
 FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * one fault at a time, so we can
                            * allocate the messages statically
                            * and index them by pid. */
 
-// Function Prototypes
-static void FaultHandler(int type, int offset);
-static void vmInit(sysargs *args);
-static void vmDestroy(sysargs *args);
+/******************** Function Prototypes ********************/
+static int Pager(char *buf);
+static void FaultHandler(int dev, void *arg); // different in skeleton, not sure which is correct
+void *vmInitReal(int mappings, int pages, int frames, int pagers);
+void vmDestroyReal(void);
+void PrintStats(void);
 
+static void mboxCreate(systemArgs *args);
+static void mboxRelease(systemArgs *args);
+static void mboxSend(systemArgs *args);
+static void mboxReceive(systemArgs *args);
+static void mboxCondSend(systemArgs *args);
+static void mboxCondReceive(systemArgs *args);
+static void vmInit(systemArgs *args);
+static void vmDestroy(systemArgs *args);
+void setUserMode();
 /*
  *----------------------------------------------------------------------
  *
@@ -80,8 +84,8 @@ int start4(char *arg) {
     systemCallVec[SYS_MBOXRELEASE]     = mboxRelease;
     systemCallVec[SYS_MBOXSEND]        = mboxSend;
     systemCallVec[SYS_MBOXRECEIVE]     = mboxReceive;
-    systemCallVec[SYS_MBOXCONDSEND]    = mboxCondsend;
-    systemCallVec[SYS_MBOXCONDRECEIVE] = mboxCondreceive;
+    systemCallVec[SYS_MBOXCONDSEND]    = mboxCondSend;
+    systemCallVec[SYS_MBOXCONDRECEIVE] = mboxCondReceive;
 
     /* user-process access to VM functions */
     systemCallVec[SYS_VMINIT]    = vmInit;
@@ -89,96 +93,18 @@ int start4(char *arg) {
 
     result = Spawn("Start5", start5, NULL, 8*USLOSS_MIN_STACK, 2, &pid);
     if (result != 0) {
-        console("start4(): Error spawning start5\n");
+        USLOSS_Console("start4(): Error spawning start5\n");
         Terminate(1);
     }
     result = Wait(&pid, &status);
     if (result != 0) {
-        console("start4(): Error waiting for start5\n");
+        USLOSS_Console("start4(): Error waiting for start5\n");
         Terminate(1);
     }
     Terminate(0);
     return 0; // not reached
 
 } /* start4 */
-
-/*
- *----------------------------------------------------------------------
- *
- * VmInit --
- *
- * Stub for the VmInit system call.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      VM system is initialized.
- *
- *----------------------------------------------------------------------
- */
-static void vmInit(sysargs *args) {
-    if (debugflag4) {
-        USLOSS_Console("process %d: vmInit started\n", getpid());
-    }
-
-    CheckMode();
-
-    // get sysarg variables
-    int mappings = (long) args->arg1;
-    int pages    = (long) args->arg2;
-    int frames   = (long) args->arg3;
-    int pagers  = (long) args->arg4;
-
-    long addr = vmInitReal(mappings, pages, frames, pagers);
-    args->arg1 = (void *) addr;
-
-    // check bad input
-    if (addr == -1) {
-        args->arg4 = (void *) -1L;
-    }
-
-    // set vmOn to true
-    vmOn = 1;
-
-    setUserMode();
-} /* vmInit */
-
-/*
- *----------------------------------------------------------------------
- *
- * vmDestroy --
- *
- * Stub for the VmDestroy system call.
- *
- * Results:
- *      None.
- *
- * Side effects:
- *      VM system is cleaned up.
- *
- *----------------------------------------------------------------------
- */
-
-static void vmDestroy(sysargs *args) {
-    if (debugflag4) {
-        USLOSS_Console("process %d: vmDestroy started\n", getpid());
-    }
-
-    CheckMode();
-
-    // if the vm hasn't been init'd yet, do nothing
-    if (vmOn == 0) {
-        return;
-    }
-
-    vmDestroyReal();
-
-    // set vmOn to false
-    vmOn = 0;
-
-    setUserMode();
-} /* vmDestroy */
 
 /*
  *----------------------------------------------------------------------
@@ -198,7 +124,7 @@ static void vmDestroy(sysargs *args) {
  *----------------------------------------------------------------------
  */
 void *vmInitReal(int mappings, int pages, int frames, int pagers) {
-    if (debugflag4) {
+    if (debugflag5) {
         USLOSS_Console("process %d: vmInit real\n", getpid());
     }
 
@@ -206,12 +132,12 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
 
     // check bad input
     if (mappings < 0 || pages < 0 || frames < 0 || pagers < 0 || pagers > MAXPAGERS) {
-        return -1;
+        return (void *) -1L;
     }
 
     // check for duplicate intialization
     if (vmOn == 1) {
-        return -1;
+        return (void *) -1L;
     }
 
     // set global variables
@@ -226,23 +152,45 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     status = USLOSS_MmuInit(mappings, pages, frames);
     if (status != USLOSS_MMU_OK) {
         USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
-        return -1;
+        return (void *) -1L;
         //abort(); this was in the skeleton but what is this?
     }
 
     // set the inturrupt handler
-    int_vec[USLOSS_MMU_INT] = FaultHandler;
+    USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
 
     // set the region
     region = USLOSS_MmuRegion(&dummy);
 
+    // initialize frame table
+    frameTable = malloc(sizeof(FTE) * frames);
+    for (int i = 0; i < frames; i++) {
+        frameTable[i].state = -1;
+        frameTable[i].pid = -1;
+        frameTable[i].page = -1;
+    }
+
     // Initialize page tables.
+    for (int i = 0; i < MAXPROC; i++) {
+    	procTable[i].numPages = 0; //pages
+    	procTable[i].pageTable = NULL; //malloc(sizeof(PTE) * pages);
+/*
+        for (int j = 0; j < pages; j++) {
+            procTable[i].pageTable[j].memState = UNUSED;
+            procTable[i].pageTable[j].diskState = UNUSED;
+            procTable[i].pageTable[j].frame = -1;
+            procTable[i].pageTable[j].diskBlock = -1;
+            procTable[i].pageTable[j].semaphore = semcreateReal(1); // TODO maybe start at 0???
+        }
+*/
+    }
+
+    // initialize blocks
 
     // Create the fault mailbox.
     faultBox = MboxCreate(MAXPROC, sizeof(FaultMsg));
 
     // Fork the pagers.
-    pagerTable = malloc(sizeof(int) * pagers);
     for (int i = 0; i < pagers; i++) {
         char name[10];
         sprintf(name, "Pager %d", i);
@@ -278,7 +226,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
  *----------------------------------------------------------------------
  */
 void vmDestroyReal(void) {
-    if (debugflag4) {
+    if (debugflag5) {
         USLOSS_Console("process %d: vmDestroy started\n", getpid());
     }
 
@@ -289,13 +237,14 @@ void vmDestroyReal(void) {
 
     // Kill the pagers
     for (int i = 0; i < numPagers; i++) {
-        zap(pagerPids[i]);
+        zap(pagerPids[i]); // TODO: is zapping right??????
     }
 
     // Print vm statistics
     PrintStats();
 
     // free stuff that we malloc'd
+    free(frameTable);
 
 } /* vmDestroyReal */
 
@@ -346,18 +295,45 @@ void PrintStats(void) {
  *
  *----------------------------------------------------------------------
  */
-static void FaultHandler(int type /* MMU_INT */, int arg  /* Offset within VM region */) {
-    int cause;
+static void FaultHandler(int dev/* MMU_INT */, void *arg  /* Offset within VM region */) {
+    if (debugflag5) {
+        USLOSS_Console("process %d: FaultHandler started\n", getpid());
+    }
 
-    assert(type == MMU_INT);
-    cause = MMU_GetCause();
-    assert(cause == MMU_FAULT);
+    int cause;
+    int result;
+    int type = dev;
+    void *addr = arg;
+
+    assert(type == USLOSS_MMU_INT);
+    cause = USLOSS_MmuGetCause();
+    assert(cause == USLOSS_MMU_FAULT);
     vmStats.faults++;
 
-    /*
-     * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the
-     * reply.
-     */
+    // create a fault message
+    FaultMsg fault = faults[getpid() % MAXPROC];
+    fault.pid = getpid();
+    fault.addr = addr;
+    fault.replyMbox = MboxCreate(1, sizeof(int));
+    
+    // send the fault
+    result = MboxSend(faultBox, &fault, sizeof(FaultMsg));
+    if (result != 0 && debugflag5) {
+        USLOSS_Console("process %d: FaultHandler can't send: %d\n", getpid(), result);
+    }
+
+    // receive the reply
+    int status;
+    result = MboxReceive(fault.replyMbox, &status, sizeof(FaultMsg));
+    if (result != 0 && debugflag5) {
+        USLOSS_Console("process %d: FaultHandler can't receive: %d\n",getpid(), result);
+    }
+
+    // clean out the fault message
+    fault.pid = -1;
+    fault.addr = NULL;
+    MboxRelease(fault.replyMbox);
+
 } /* FaultHandler */
 
 /*
@@ -376,13 +352,235 @@ static void FaultHandler(int type /* MMU_INT */, int arg  /* Offset within VM re
  *----------------------------------------------------------------------
  */
 static int Pager(char *buf) {
-    while(1) {
+    if (debugflag5) {
+        USLOSS_Console("process %d: Pager started\n", getpid());
+    }
+
+    int result;
+
+    while(!isZapped()) {
         /* Wait for fault to occur (receive from mailbox) */
+        FaultMsg fault;
+
+        result = MboxReceive(faultBox, &fault, sizeof(FaultMsg));
+        if (result != 0 && debugflag5) {
+            USLOSS_Console("process %d: Pager can't receive: %d\n",getpid(), result);
+        }
+
         /* Look for free frame */
         /* If there isn't one then use clock algorithm to
          * replace a page (perhaps write to disk) */
+        
+
         /* Load page into frame from disk, if necessary */
         /* Unblock waiting (faulting) process */
     }
     return 0;
 } /* Pager */
+
+
+
+
+
+
+/*VVVVVVVV User Functions VVVVVVVV*/
+static void mboxCreate(systemArgs *args) {
+    CheckMode();
+
+    // get sysarg variables
+    int numslots = (long) args->arg1;
+    int slotsize = (long) args->arg2;
+
+    int *id;
+    int res = Mbox_Create(numslots, slotsize, id);
+
+    args->arg1 = (void *) id;
+    args->arg4 = (void *) 0L;
+
+    // check bad input
+    if (res < 0) {
+        args->arg4 = (void *) -1L;
+    }
+
+    setUserMode();
+}
+
+static void mboxRelease(systemArgs *args) {
+    CheckMode();
+
+    // get sysarg variables
+    int id = (long) args->arg1;
+
+    int res = Mbox_Release(id);
+
+    args->arg4 = (void *) 0L;
+
+    // check bad input
+    if (res < 0) {
+        args->arg4 = (void *) -1L;
+    }
+
+    setUserMode();
+}
+
+static void mboxSend(systemArgs *args) {
+    CheckMode();
+
+    // get sysarg variables
+    int id = (long) args->arg1;
+    void *msg = args->arg2;
+    int size = (long) args->arg3;
+
+    int res = Mbox_Send(id, msg, size);
+
+    args->arg4 = (void *) 0L;
+
+    // check bad input
+    if (res < 0) {
+        args->arg4 = (void *) -1L;
+    }
+
+    setUserMode();
+}
+
+static void mboxReceive(systemArgs *args) {
+    CheckMode();
+
+    // get sysarg variables
+    int id = (long) args->arg1;
+    void *msg = args->arg2;
+    int size = (long) args->arg3;
+    
+    int res = Mbox_Receive(id, msg, size);
+    
+    args->arg4 = (void *) 0L;
+
+    // check bad input
+    if (res < 0) {
+        args->arg4 = (void *) -1L;
+    }
+
+    setUserMode();
+}
+
+static void mboxCondSend(systemArgs *args) {
+    CheckMode();
+
+    // get sysarg variables
+    int id = (long) args->arg1;
+    void *msg = args->arg2;
+    int size = (long) args->arg3;
+    
+    int res = Mbox_CondSend(id, msg, size);
+    
+    args->arg4 = (void *) 0L;
+
+    // check bad input
+    if (res < 0) {
+        args->arg4 = (void *) -1L;
+    }
+
+    setUserMode();
+}
+
+static void mboxCondReceive(systemArgs *args) {
+    CheckMode();
+
+    // get sysarg variables
+    int id = (long) args->arg1;
+    void *msg = args->arg2;
+    int size = (long) args->arg3;
+
+    int res = Mbox_CondReceive(id, msg, size);
+
+    args->arg4 = (void *) 0L;
+
+    // check bad input
+    if (res < 0) {
+        args->arg4 = (void *) -1L;
+    }
+
+    setUserMode();
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * VmInit --
+ *
+ * Stub for the VmInit system call.
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      VM system is initialized.
+ *
+ *----------------------------------------------------------------------
+ */
+static void vmInit(systemArgs *args) {
+    if (debugflag5) {
+        USLOSS_Console("process %d: vmInit started\n", getpid());
+    }
+
+    CheckMode();
+
+    // get sysarg variables
+    int mappings = (long) args->arg1;
+    int pages    = (long) args->arg2;
+    int frames   = (long) args->arg3;
+    int pagers  = (long) args->arg4;
+
+    void *addr = vmInitReal(mappings, pages, frames, pagers);
+    args->arg1 = (void *) addr;
+
+    // check bad input
+    if ((long) addr == -1) {
+        args->arg4 = (void *) -1L;
+    }
+
+    // set vmOn to true
+    vmOn = 1;
+
+    setUserMode();
+} /* vmInit */
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * vmDestroy --
+ *
+ * Stub for the VmDestroy system call.
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      VM system is cleaned up.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void vmDestroy(systemArgs *args) {
+    if (debugflag5) {
+        USLOSS_Console("process %d: vmDestroy started\n", getpid());
+    }
+
+    CheckMode();
+
+    // if the vm hasn't been init'd yet, do nothing
+    if (vmOn == 0) {
+        return;
+    }
+
+    vmDestroyReal();
+
+    // set vmOn to false
+    vmOn = 0;
+
+    setUserMode();
+} /* vmDestroy */
+
+void setUserMode() {
+    USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
+}

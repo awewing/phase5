@@ -274,7 +274,8 @@ int Sleep(int seconds)
     sysArg.number = SYS_SLEEP;
     sysArg.arg1 = (void *) (long) seconds;
     USLOSS_Syscall(&sysArg);
-    return (int) sysArg.arg4;
+    int ret = (long) sysArg.arg4;
+    return ret;
 } /* end of Sleep */
 
 
@@ -302,8 +303,8 @@ int TermRead(char *buffer, int bufferSize, int unitID, int *numCharsRead)
     sysArg.arg2 = (void *) (long) bufferSize;
     sysArg.arg3 = (void *) (long) unitID;
     USLOSS_Syscall(&sysArg);
-    *numCharsRead = (int) sysArg.arg2;
-    return (int) sysArg.arg4;
+    *numCharsRead = (long) sysArg.arg2;
+    return (long) sysArg.arg4;
 } /* end of TermRead */
 
 
@@ -331,8 +332,8 @@ int TermWrite(char *buffer, int bufferSize, int unitID, int *numCharsWritten)
     sysArg.arg2 = (void *) (long) bufferSize;
     sysArg.arg3 = (void *) (long) unitID;
     USLOSS_Syscall(&sysArg);
-    *numCharsWritten = (int) sysArg.arg2;
-    return (int) sysArg.arg4;
+    *numCharsWritten = (long) sysArg.arg2;
+    return (long) sysArg.arg4;
 } /* end of TermWrite */
 
 
@@ -365,8 +366,8 @@ int DiskRead(void *diskBuffer, int unit, int track, int first, int sectors,
     sysArg.arg4 = (void *) (long) first;
     sysArg.arg5 = (void *) (long) unit;
     USLOSS_Syscall(&sysArg);
-    *status = (int) sysArg.arg1;
-    return (int) sysArg.arg4;
+    *status = (long) sysArg.arg1;
+    return (long) sysArg.arg4;
 } /* end of DiskRead */
 
 
@@ -399,8 +400,8 @@ int DiskWrite(void *diskBuffer, int unit, int track, int first, int sectors,
     sysArg.arg4 = (void *) (long) first;
     sysArg.arg5 = (void *) (long) unit;
     USLOSS_Syscall(&sysArg);
-    *status = (int) sysArg.arg1;
-    return (int) sysArg.arg4;
+    *status = (long) sysArg.arg1;
+    return (long) sysArg.arg4;
 } /* end of DiskWrite */
 
 
@@ -426,10 +427,10 @@ int DiskSize(int unit, int *sector, int *track, int *disk)
     sysArg.number = SYS_DISKSIZE;
     sysArg.arg1 = (void *) (long) unit;
     USLOSS_Syscall(&sysArg);
-    *sector = (int) sysArg.arg1;
-    *track = (int) sysArg.arg2;
-    *disk = (int) sysArg.arg3;
-    return (int) sysArg.arg4;
+    *sector = (long) sysArg.arg1;
+    *track = (long) sysArg.arg2;
+    *disk = (long) sysArg.arg3;
+    return (long) sysArg.arg4;
 } /* end of DiskSize */
 
 /*
@@ -454,8 +455,8 @@ int Mbox_Create(int numslots, int slotsize, int *mboxID)
     sysArg.arg1 = (void *) (long) numslots;
     sysArg.arg2 = (void *) (long) slotsize;
     USLOSS_Syscall(&sysArg);
-    *mboxID = (int) sysArg.arg1;
-    return (int) sysArg.arg4;
+    *mboxID = (long) sysArg.arg1;
+    return (long) sysArg.arg4;
 } /* end of Mbox_Create */
 
 
@@ -477,7 +478,7 @@ int Mbox_Release(int mboxID)
     sysArg.number = SYS_MBOXRELEASE;
     sysArg.arg1 = (void *) (long) mboxID;
     USLOSS_Syscall(&sysArg);
-    return (int) sysArg.arg4;
+    return (long) sysArg.arg4;
 } /* end of Mbox_Release */
 
 
@@ -500,10 +501,10 @@ int Mbox_Send(int mboxID, void *msgPtr, int msgSize)
     CHECKMODE;
     sysArg.number = SYS_MBOXSEND;
     sysArg.arg1 = (void *) (long) mboxID;
-    sysArg.arg2 = (void *) (long) msgPtr;
+    sysArg.arg2 = msgPtr;
     sysArg.arg3 = (void *) (long) msgSize;
     USLOSS_Syscall(&sysArg);
-    return (int) sysArg.arg4;
+    return (long) sysArg.arg4;
 } /* end of Mbox_Send */
 
 
@@ -526,16 +527,16 @@ int Mbox_Receive(int mboxID, void *msgPtr, int msgSize)
     CHECKMODE;
     sysArg.number = SYS_MBOXRECEIVE;
     sysArg.arg1 = (void *) (long) mboxID;
-    sysArg.arg2 = (void *) (long) msgPtr;
+    sysArg.arg2 = msgPtr;
     sysArg.arg3 = (void *) (long) msgSize;
     USLOSS_Syscall( &sysArg );
         /*
          * This doesn't belong here. The copy should by done by the
          * system call.
          */
-        if ( (int) sysArg.arg4 == -1 )
-                return (int) sysArg.arg4;
-        memcpy( (char*)msgPtr, (char*)sysArg.arg2, (int)sysArg.arg3);
+        if ( (long) sysArg.arg4 == -1 )
+                return (long) sysArg.arg4;
+        memcpy( (char*)msgPtr, (char*)sysArg.arg2, (long)sysArg.arg3);
         return 0;
 
 } /* end of Mbox_Receive */
@@ -561,10 +562,10 @@ int Mbox_CondSend(int mboxID, void *msgPtr, int msgSize)
     CHECKMODE;
     sysArg.number = SYS_MBOXCONDSEND;
     sysArg.arg1 = (void *) (long) mboxID;
-    sysArg.arg2 = (void *) (long) msgPtr;
+    sysArg.arg2 = msgPtr;
     sysArg.arg3 = (void *) (long) msgSize;
     USLOSS_Syscall(&sysArg);
-    return ((int) sysArg.arg4);
+    return ((long) sysArg.arg4);
 } /* end of Mbox_CondSend */
 
 
@@ -589,10 +590,10 @@ int Mbox_CondReceive(int mboxID, void *msgPtr, int msgSize)
     CHECKMODE;
     sysArg.number = SYS_MBOXCONDRECEIVE;
     sysArg.arg1 = (void *) (long) mboxID;
-    sysArg.arg2 = (void *) (long) msgPtr;
+    sysArg.arg2 = msgPtr;
     sysArg.arg3 = (void *) (long) msgSize;
     USLOSS_Syscall( &sysArg );
-    return ((int) sysArg.arg4);
+    return ((long) sysArg.arg4);
 } /* end of Mbox_CondReceive */
 
 

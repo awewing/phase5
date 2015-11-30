@@ -419,12 +419,12 @@ void forkReal(int pid) {
     procTable[pid % MAXPROC].pageTable = malloc(sizeof(PTE) * numPages);
 
     // fill in the page table
-    for (int j = 0; j < numPages; j++) {
-        procTable[pid % MAXPROC].pageTable[j].memState = UNUSED;
-        procTable[pid % MAXPROC].pageTable[j].diskState = UNUSED;
-        procTable[pid % MAXPROC].pageTable[j].frame = -1;
-        procTable[pid % MAXPROC].pageTable[j].diskBlock = -1;
-        procTable[pid % MAXPROC].pageTable[j].semaphore = semcreateReal(1); // TODO maybe start at 0
+    for (int i = 0; i < numPages; i++) {
+        procTable[pid % MAXPROC].pageTable[i].memState = UNUSED;
+        procTable[pid % MAXPROC].pageTable[i].diskState = UNUSED;
+        procTable[pid % MAXPROC].pageTable[i].frame = -1;
+        procTable[pid % MAXPROC].pageTable[i].diskBlock = -1;
+        procTable[pid % MAXPROC].pageTable[i].semaphore = semcreateReal(1); // TODO maybe start at 0
     }
 }
 
@@ -439,7 +439,25 @@ void quitReal(int pid) {
         USLOSS_Console("process %d: quitReal\n", getpid());
     }
 
+    // TODO maybe checks on input
 
+    // release the sems for all PTE for this process
+    for (int i = 0; i < procTable[pid % MAXPROC].numPages; i++) {
+        semfreeReal(procTable[pid % MAXPROC].pageTable[i].semaphore);
+    }
+
+    // clean up all frames for this process
+    for (int i = 0; i < numFrames; i++) {
+        if (frameTable[i].pid == pid) {
+            frameTable[i].state = -1;
+            frameTable[i].pid = -1;
+            frameTable[i].page = -1;
+        }
+    }
+
+    // reset this value in the procTable
+    procTable[pid % MAXPROC].numPages;
+    free(procTable[pid % MAXPROC].pageTable);
 }
 
 

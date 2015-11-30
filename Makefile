@@ -32,7 +32,7 @@ TESTS = test1 test2 test3 test4 simple1 simple2 simple3 simple4 simple5 \
         chaos replace1 outOfSwap replace2 gen clock quit 
 LIBS = $(TESTDIR)/Tconsole.o -lpatrickphase4 -lpatrickphase3 -lpatrickphase2 \
        -lpatrickphase1 -lusloss -lpatrickphase1 -lpatrickphase2 \
-       -lpatrickphase3 -lpatrickphase4 -lphase5 -luser
+       -lpatrickphase3 -lpatrickphase4 -lphase5
 
 $(TARGET):	$(COBJS)
 		$(AR) -r $@ $(COBJS) 

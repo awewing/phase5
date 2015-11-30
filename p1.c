@@ -28,6 +28,8 @@ void p1_quit(int pid) {
     quitReal(pid);
 } /* p1_quit */
 
+/*
 int check_io() {
     return 0;
 }
+*/

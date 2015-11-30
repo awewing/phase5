@@ -51,7 +51,7 @@ typedef struct FaultMsg {
 /* 
  * Frame table entry 
  */
-struct FTE {
+typedef struct FTE {
     int state;
     int pid;
     int page;

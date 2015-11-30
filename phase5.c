@@ -153,7 +153,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     if (status != USLOSS_MMU_OK) {
         USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
         return (void *) -1L;
-        //abort(); this was in the skeleton but what is this?
+        //TODO abort(); this was in the skeleton but what is this?
     }
 
     // set the inturrupt handler
@@ -165,7 +165,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     // initialize frame table
     frameTable = malloc(sizeof(FTE) * frames);
     for (int i = 0; i < frames; i++) {
-        frameTable[i] = malloc(sizeof(FTE));
+        //frameTable[i] = malloc(sizeof(FTE));
         frameTable[i].state = -1;
         frameTable[i].pid = -1;
         frameTable[i].page = -1;

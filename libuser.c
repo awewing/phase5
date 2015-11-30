@@ -36,6 +36,7 @@
  *
  *  Return Value: 0 means success, -1 means error occurs
  */
+/*
 int Spawn(char *name, int (*func)(char *), char *arg, int stack_size,
 	int priority, int *pid)
 {
@@ -51,7 +52,8 @@ int Spawn(char *name, int (*func)(char *), char *arg, int stack_size,
     USLOSS_Syscall(&sysArg);
     *pid = (long) sysArg.arg1;
     return (long) sysArg.arg4;
-} /* end of Spawn */
+} */
+ /* end of Spawn */
 
 
 /*
@@ -66,6 +68,7 @@ int Spawn(char *name, int (*func)(char *), char *arg, int stack_size,
  *
  *  Return Value: 0 means success, -1 means error occurs
  */
+/*
 int Wait(int *pid, int *status)
 {
     systemArgs sysArg;
@@ -77,7 +80,8 @@ int Wait(int *pid, int *status)
     *status = (long) sysArg.arg2;
     return (long) sysArg.arg4;
 
-} /* End of Wait */
+} */
+/* End of Wait */
 
 
 /*
@@ -90,6 +94,7 @@ int Wait(int *pid, int *status)
  *
  *  Return Value: 0 means success, -1 means error occurs
  */
+/*
 void Terminate(int status)
 {
     systemArgs sysArg;
@@ -100,7 +105,8 @@ void Terminate(int status)
     USLOSS_Syscall(&sysArg);
     return;
 
-} /* End of Terminate */
+} */
+/* End of Terminate */
 
 
 /*
@@ -112,6 +118,7 @@ void Terminate(int status)
  *		  int *semaphore -- semaphore handle
  *                (output value: completion status)
  */
+/*
 int SemCreate(int value, int *semaphore)
 {
     systemArgs sysArg;
@@ -122,7 +129,8 @@ int SemCreate(int value, int *semaphore)
     USLOSS_Syscall(&sysArg);
     *semaphore = (long) sysArg.arg1;
     return (long) sysArg.arg4;
-} /* end of SemCreate */
+} */
+/* end of SemCreate */
 
 
 /*
@@ -135,6 +143,7 @@ int SemCreate(int value, int *semaphore)
  *                (output value: completion status)
  *
  */
+/*
 int SemP(int semaphore)
 {
     systemArgs sysArg;
@@ -144,7 +153,8 @@ int SemP(int semaphore)
     sysArg.arg1 = (void *) ( (long) semaphore);
     USLOSS_Syscall(&sysArg);
     return (long) sysArg.arg4;
-} /* end of SemP */
+} */
+/* end of SemP */
 
 
 /*
@@ -157,6 +167,7 @@ int SemP(int semaphore)
  *                (output value: completion status)
  *
  */
+/*
 int SemV(int semaphore)
 {
     systemArgs sysArg;
@@ -166,7 +177,8 @@ int SemV(int semaphore)
     sysArg.arg1 = (void *) ( (long) semaphore);
     USLOSS_Syscall(&sysArg);
     return (long) sysArg.arg4;
-} /* end of SemV */
+} */
+/* end of SemV */
 
 
 /*
@@ -179,6 +191,7 @@ int SemV(int semaphore)
  *                (output value: completion status)
  *
  */
+/*
 int SemFree(int semaphore)
 {
     systemArgs sysArg;
@@ -188,7 +201,8 @@ int SemFree(int semaphore)
     sysArg.arg1 = (void *) ( (long) semaphore);
     USLOSS_Syscall(&sysArg);
     return (long) sysArg.arg4;
-} /* end of SemFree */
+} */
+/* end of SemFree */
 
 
 /*
@@ -200,6 +214,7 @@ int SemFree(int semaphore)
  *                (output value: the time of day)
  *
  */
+/*
 void GetTimeofDay(int *tod)
 {
     systemArgs sysArg;
@@ -209,7 +224,8 @@ void GetTimeofDay(int *tod)
     USLOSS_Syscall(&sysArg);
     *tod = (long) sysArg.arg1;
     return;
-} /* end of GetTimeofDay */
+} */
+/* end of GetTimeofDay */
 
 
 /*
@@ -222,6 +238,7 @@ void GetTimeofDay(int *tod)
  *                (output value: the CPU time of the process)
  *
  */
+/*
 void CPUTime(int *cpu)
 {
     systemArgs sysArg;
@@ -231,7 +248,8 @@ void CPUTime(int *cpu)
     USLOSS_Syscall(&sysArg);
     *cpu = (long) sysArg.arg1;
     return;
-} /* end of CPUTime */
+} */
+/* end of CPUTime */
 
 
 /*
@@ -244,6 +262,7 @@ void CPUTime(int *cpu)
  *                (output value: the PID)
  *
  */
+/*
 void GetPID(int *pid)
 {
     systemArgs sysArg;
@@ -253,7 +272,8 @@ void GetPID(int *pid)
     USLOSS_Syscall(&sysArg);
     *pid = (long) sysArg.arg1;
     return;
-} /* end of GetPID */
+} */
+/* end of GetPID */
 
 /* end libuser.c */
 /*
@@ -610,7 +630,7 @@ int Mbox_CondReceive(int mboxID, void *msgPtr, int msgSize)
  *  Return Value: address of VM region, NULL if there was an error
  *
  */
-void *VmInit(int mappings, int pages, int frames, int pagers)
+void *VmInit(int mappings, int pages, int frames, int pagers, void **vmRegion)
 {
     systemArgs     sysArg;
 
@@ -622,10 +642,12 @@ void *VmInit(int mappings, int pages, int frames, int pagers)
     sysArg.arg3 = (void *) (long) frames;
     sysArg.arg4 = (void *) (long) pagers;
     USLOSS_Syscall(&sysArg);
-    if ((int) sysArg.arg4 == -1) {
+
+    if ((long) sysArg.arg4 == -1) {
         return NULL;
     } else {
-        return sysArg.arg1;
+        vmRegion = sysArg.arg1;
+        return 0;
     }
 } /* VmInit */
 

@@ -45,4 +45,7 @@ typedef struct VmStats {
 
 extern VmStats	vmStats;
 extern  int  start5(char *);
+extern  void forkReal(int pid);
+extern  void switchReal(int old, int new);
+extern  void quitReal(int pid);
 #endif /* _PHASE5_H */

@@ -165,27 +165,19 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     // initialize frame table
     frameTable = malloc(sizeof(FTE) * frames);
     for (int i = 0; i < frames; i++) {
-        frameTable[i].state = UNUSED;
+        frameTable[i] = malloc(sizeof(FTE));
+        frameTable[i].state = -1;
         frameTable[i].pid = -1;
         frameTable[i].page = -1;
     }
 
     // Initialize page tables.
     for (int i = 0; i < MAXPROC; i++) {
-    	procTable[i].numPages = 0; //pages
-    	procTable[i].pageTable = NULL; //malloc(sizeof(PTE) * pages);
-/*
-        for (int j = 0; j < pages; j++) {
-            procTable[i].pageTable[j].memState = UNUSED;
-            procTable[i].pageTable[j].diskState = UNUSED;
-            procTable[i].pageTable[j].frame = -1;
-            procTable[i].pageTable[j].diskBlock = -1;
-            procTable[i].pageTable[j].semaphore = semcreateReal(1); // TODO maybe start at 0???
-        }
-*/
+    	procTable[i].numPages = 0; // pages
+    	procTable[i].pageTable = NULL;
     }
 
-    // initialize blocks
+    // TODO initialize blocks
 
     // Create the fault mailbox.
     faultBox = MboxCreate(MAXPROC, sizeof(FaultMsg));
@@ -237,7 +229,7 @@ void vmDestroyReal(void) {
 
     // Kill the pagers
     for (int i = 0; i < numPagers; i++) {
-        MboxSend(faultBox, "quit", sizeof(char * 4)); // wake up the pager
+        MboxSend(faultBox, "quit", sizeof(char) * 4); // wake up the pager
         zap(pagerPids[i]); // TODO: is zapping right??????
     }
 
@@ -369,6 +361,7 @@ static int Pager(char *buf) {
         }
 
         int pid = fault.pid;
+        int page = fault.addr; // convert to a page
 
         // check if zapped while waiting
         if (isZapped()) {
@@ -385,17 +378,17 @@ static int Pager(char *buf) {
             }
 
             // check if this node is open
-            if (frameTable[lastFrameIndex].state) {
-                frameTable[lastFrameIndex].state = UNUSED;
+            if (frameTable[lastFrameIndex].state == 1) {
+                frameTable[lastFrameIndex].state = -1;
                 frameTable[lastFrameIndex].pid = pid;
-                frame.page = buf; // TODO COVERT TO INT
+                frameTable[lastFrameIndex].page = page;
 
                 lastFrameIndex++;
                 break;
             }
             // otherwise set it to be open next time
             else {
-                frameTable[lastFrameIndex].state = INCORE;
+                frameTable[lastFrameIndex].state = 1;
 
                 lastFrameIndex++;
             }
@@ -403,17 +396,51 @@ static int Pager(char *buf) {
 
         /* Load page into frame from disk, if necessary */
         // check if necessary
-        if (procTable[pid]->pageTable[page].diskState == 1) {
+        if (procTable[pid % MAXPROC].pageTable[page].diskState == 1) {
             // TODO disk stuff
             // TODO update the pagetable
         }
 
         /* Unblock waiting (faulting) process */
-        MboxSend(fault.replyMbox, "done", sizeof(char * 4));
+        MboxSend(fault.replyMbox, "done", sizeof(char) * 4);
     }
     return 0;
 } /* Pager */
 
+void forkReal(int pid) {
+    if (debugflag5) {
+        USLOSS_Console("process %d: forkReal\n", getpid());
+    }
+
+    // TODO maybe check input?
+
+    // create a new process
+    procTable[pid % MAXPROC].numPages = numPages;
+    procTable[pid % MAXPROC].pageTable = malloc(sizeof(PTE) * numPages);
+
+    // fill in the page table
+    for (int j = 0; j < numPages; j++) {
+        procTable[pid % MAXPROC].pageTable[j].memState = UNUSED;
+        procTable[pid % MAXPROC].pageTable[j].diskState = UNUSED;
+        procTable[pid % MAXPROC].pageTable[j].frame = -1;
+        procTable[pid % MAXPROC].pageTable[j].diskBlock = -1;
+        procTable[pid % MAXPROC].pageTable[j].semaphore = semcreateReal(1); // TODO maybe start at 0
+    }
+}
+
+void switchReal(int old, int new) {
+    if (debugflag5) {
+        USLOSS_Console("process %d: switchReal\n", getpid());
+    }
+}
+
+void quitReal(int pid) {
+    if (debugflag5) {
+        USLOSS_Console("process %d: quitReal\n", getpid());
+    }
+
+
+}
 
 
 

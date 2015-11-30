@@ -33,7 +33,7 @@ int pagerPids[MAXPAGERS];
 Process procTable[MAXPROC];
 FTE *frameTable;
 Block *blockTable;
-int lastFrameIndex= 0;
+int lastFrameIndex = 0;
 
 void *region;
 
@@ -165,7 +165,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     // initialize frame table
     frameTable = malloc(sizeof(FTE) * frames);
     for (int i = 0; i < frames; i++) {
-        frameTable[i].state = -1;
+        frameTable[i].state = UNUSED;
         frameTable[i].pid = -1;
         frameTable[i].page = -1;
     }
@@ -237,6 +237,7 @@ void vmDestroyReal(void) {
 
     // Kill the pagers
     for (int i = 0; i < numPagers; i++) {
+        MboxSend(faultBox, "quit", sizeof(char * 4)); // wake up the pager
         zap(pagerPids[i]); // TODO: is zapping right??????
     }
 
@@ -358,7 +359,7 @@ static int Pager(char *buf) {
 
     int result;
 
-    while(!isZapped()) {
+    while (!isZapped()) {
         /* Wait for fault to occur (receive from mailbox) */
         FaultMsg fault;
 
@@ -367,13 +368,48 @@ static int Pager(char *buf) {
             USLOSS_Console("process %d: Pager can't receive: %d\n",getpid(), result);
         }
 
+        int pid = fault.pid;
+
+        // check if zapped while waiting
+        if (isZapped()) {
+            break;
+        }
+
         /* Look for free frame */
         /* If there isn't one then use clock algorithm to
          * replace a page (perhaps write to disk) */
-        
+        while (1) {
+            // check if we are pointing beyond the edge of the array
+            if (lastFrameIndex == numFrames) {
+                lastFrameIndex = 0;
+            }
+
+            // check if this node is open
+            if (frameTable[lastFrameIndex].state) {
+                frameTable[lastFrameIndex].state = UNUSED;
+                frameTable[lastFrameIndex].pid = pid;
+                frame.page = buf; // TODO COVERT TO INT
+
+                lastFrameIndex++;
+                break;
+            }
+            // otherwise set it to be open next time
+            else {
+                frameTable[lastFrameIndex].state = INCORE;
+
+                lastFrameIndex++;
+            }
+        }
 
         /* Load page into frame from disk, if necessary */
+        // check if necessary
+        if (procTable[pid]->pageTable[page].diskState == 1) {
+            // TODO disk stuff
+            // TODO update the pagetable
+        }
+
         /* Unblock waiting (faulting) process */
+        MboxSend(fault.replyMbox, "done", sizeof(char * 4));
     }
     return 0;
 } /* Pager */

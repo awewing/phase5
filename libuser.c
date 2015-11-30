@@ -616,7 +616,6 @@ int Mbox_CondReceive(int mboxID, void *msgPtr, int msgSize)
     return ((long) sysArg.arg4);
 } /* end of Mbox_CondReceive */
 
-
 /*
  *  Routine:  VmInit
  *
@@ -630,7 +629,7 @@ int Mbox_CondReceive(int mboxID, void *msgPtr, int msgSize)
  *  Return Value: address of VM region, NULL if there was an error
  *
  */
-void *VmInit(int mappings, int pages, int frames, int pagers, void **vmRegion)
+int VmInit(int mappings, int pages, int frames, int pagers, void *region)
 {
     systemArgs     sysArg;
 
@@ -641,13 +640,15 @@ void *VmInit(int mappings, int pages, int frames, int pagers, void **vmRegion)
     sysArg.arg2 = (void *) (long) pages;
     sysArg.arg3 = (void *) (long) frames;
     sysArg.arg4 = (void *) (long) pagers;
+
     USLOSS_Syscall(&sysArg);
 
-    if ((long) sysArg.arg4 == -1) {
-        return NULL;
-    } else {
-        vmRegion = sysArg.arg1;
+    region = sysArg.arg1;  // return address of VM Region
+
+    if ((int) sysArg.arg4 == 0) {
         return 0;
+    } else {
+        return (int) (long) sysArg.arg4;
     }
 } /* VmInit */
 
@@ -663,13 +664,14 @@ void *VmInit(int mappings, int pages, int frames, int pagers, void **vmRegion)
  *
  */
 
-void VmDestroy(void) 
-{
+int
+VmDestroy(void) {
     systemArgs     sysArg;
 
     CHECKMODE;
     sysArg.number = SYS_VMDESTROY;
     USLOSS_Syscall(&sysArg);
+    return (int) (long) sysArg.arg1;
 } /* VmDestroy */
 
 

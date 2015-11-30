@@ -43,7 +43,11 @@ extern int  MboxCondReceive(int mboxID, void *msgPtr, int msgSize);
 */
 
 // Phase 5 -- User Function Prototypes
-extern void *VmInit(int mappings, int pages, int frames, int pagers, void **vmRegion);
-extern void VmDestroy(void);
+//extern void *VmInit(int mappings, int pages, int frames, int pagers);
+//extern void VmDestroy(void);
+
+extern int VmInit(int mappings, int pages, int frames, int pagers,
+                  void *region);
+extern int VmDestroy(void);
 
 #endif

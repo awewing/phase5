@@ -597,6 +597,7 @@ static void vmInit(systemArgs *args) {
     void *addr = vmInitReal(mappings, pages, frames, pagers);
     args->arg1 = (void *) addr;
 
+    args->arg4 = (void *) 0L;
     // check bad input
     if ((long) addr == -1) {
         args->arg4 = (void *) -1L;

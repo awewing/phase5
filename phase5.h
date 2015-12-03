@@ -24,6 +24,8 @@
  */
 #define MAXPAGERS 4
 
+#define MAXBLOCKS 32
+
 /*
  * Paging statistics
  */

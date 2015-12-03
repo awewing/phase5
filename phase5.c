@@ -18,7 +18,7 @@
  */
 
 /******************** Globals ********************/
-int debugflag5 = 1;
+int debugflag5 = 0;
 
 int vmOn = 0; // if the vm has already been started
 
@@ -26,6 +26,7 @@ int vmOn = 0; // if the vm has already been started
 int numPages = 0;
 int numFrames = 0;
 int numPagers = 0;
+int diskBlocks;
 
 int faultBox; // fault Mailbox for pagers
 
@@ -90,6 +91,18 @@ int start4(char *arg) {
     systemCallVec[SYS_MBOXCONDSEND]    = mboxCondSend;
     systemCallVec[SYS_MBOXCONDRECEIVE] = mboxCondReceive;
 
+    // calculate diskblock stuff
+    int sector;
+    int track;
+    int disk;
+    DiskSize(1, &sector, &track, &disk);
+
+    diskBlocks = disk;
+    blockTable = malloc(sizeof(int) * diskBlocks);
+    for (int i = 0; i < diskBlocks; i++) {
+        blockTable[i] = i * (sector * (track / 2));
+    }
+
     /* user-process access to VM functions */
     systemCallVec[SYS_VMINIT]    = vmInit;
     systemCallVec[SYS_VMDESTROY] = vmDestroy;
@@ -142,6 +155,10 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     if (vmOn == 1) {
         return (void *) -1L;
     }
+    else {
+        // set vmOn to true
+        vmOn = 1;
+    }
 
     // set global variables
     numPages = pages;
@@ -182,21 +199,6 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     	procTable[i].pageTable = NULL;
     }
 
-    // TODO because we need disksizereal!!!!
-    // initialize blocks 
-    int diskBlocks = 0;
-/*
-    int sector;
-    int track;
-    int disk;
-    DiskSize(1, &sector, &track, &disk);
-
-    int diskBlocks = 2 * disk;
-    blockTable = malloc(sizeof(int) * diskBlocks);
-    for (int i = 0; i < diskBlocks; i++) {
-        blockTable[i] = i * (sector * (track / 2));
-    }
-*/
     // Create the fault mailbox.
     faultBox = MboxCreate(MAXPROC, sizeof(FaultMsg));
 
@@ -213,9 +215,9 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     vmStats.frames = frames;
 
     // Initialize other vmStats fields.
-    vmStats.diskBlocks = diskBlocks;     // TODO how to calculate this
+    vmStats.diskBlocks = diskBlocks;
     vmStats.freeFrames = frames;
-    vmStats.freeDiskBlocks = diskBlocks; // TODO how to calculate this
+    vmStats.freeDiskBlocks = diskBlocks;
     vmStats.switches = 0;
     vmStats.faults = 0;
     vmStats.new = 0;
@@ -400,6 +402,7 @@ static int Pager(char *buf) {
 
         int pid = fault.pid;
         int page = (int) ((long) fault.addr / USLOSS_MmuPageSize()); // convert to a page
+
         int frame;
 
         // check if zapped while waiting
@@ -517,7 +520,7 @@ static int Pager(char *buf) {
             memset(destination, 0, USLOSS_MmuPageSize());
 
             // unmap
-            //result = USLOSS_MmuUnmap(0, page);
+            result = USLOSS_MmuUnmap(0, page);
             if (result != USLOSS_MMU_OK) {
                 USLOSS_Console("process %d: Pager failed unmapping: %d\n", getpid(), result);
                 USLOSS_Halt(1);
@@ -551,11 +554,6 @@ void forkReal(int pid) {
         return;
     }
 
-    // check that pid is valid
-    if (pid < 0 || pid >= MAXPROC) {
-        return;
-    }
-
     // create a new process
     procTable[pid % MAXPROC].numPages = numPages;
     procTable[pid % MAXPROC].pageTable = malloc(sizeof(PTE) * numPages);
@@ -582,18 +580,12 @@ void switchReal(int old, int new) {
         return;
     }
 
-    // check that pid is valid
-    if (new < 0 || old < 0 || new >= MAXPROC || old >= MAXPROC) {
-        return;
-    }
-
     // update vmstats
     vmStats.switches++;
 
     // unmap the old's stuff
     if (procTable[old % MAXPROC].pageTable != NULL) {
         for (int i = 0; i < numPages; i++) {
-//USLOSS_Console("%d\n", procTable[old % MAXPROC].pageTable[i].memState);
             if (procTable[old % MAXPROC].pageTable[i].memState == INCORE) {
                 result = USLOSS_MmuUnmap(0, i);
                 if (result != USLOSS_MMU_OK) {
@@ -606,16 +598,17 @@ void switchReal(int old, int new) {
 
     // map new's stuff
     if (procTable[new % MAXPROC].pageTable != NULL) {
-    for (int i = 0; i < numPages; i++) {
-        if (procTable[new % MAXPROC].pageTable[i].memState == INCORE) {
-       result = USLOSS_MmuMap(0, i, procTable[new % MAXPROC].pageTable[i].frame, USLOSS_MMU_PROT_RW);
-            if (result != USLOSS_MMU_OK) {
-                USLOSS_Console("process %d: switchReal failed map: %d\n", old, result);
-                USLOSS_Halt(1);
+        for (int i = 0; i < numPages; i++) {
+            if (procTable[new % MAXPROC].pageTable[i].memState == INCORE) {
+                result = USLOSS_MmuMap(0, i, procTable[new % MAXPROC].pageTable[i].frame, USLOSS_MMU_PROT_RW);
+                if (result != USLOSS_MMU_OK) {
+                    USLOSS_Console("process %d: switchReal failed map: %d\n", old, result);
+//                    USLOSS_Halt(1);
+                }
             }
         }
     }
-    }
+
 }
 
 void quitReal(int pid) {
@@ -625,11 +618,6 @@ void quitReal(int pid) {
 
     // check if vm has started yet
     if (!vmOn) {
-        return;
-    }
-
-    // check that pid is valid
-    if (pid < 0 || pid >= MAXPROC) {
         return;
     }
 
@@ -812,9 +800,6 @@ static void vmInit(systemArgs *args) {
     if ((long) addr == -1) {
         args->arg4 = (void *) -1L;
     }
-
-    // set vmOn to true
-    vmOn = 1;
 
     setUserMode();
 } /* vmInit */

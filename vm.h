@@ -13,8 +13,10 @@
  */
 #define UNUSED 500
 #define INCORE 501
-/* You'll probably want more states */
 
+/* You'll probably want more states */
+#define OPEN -1
+#define CLOSED 1
 
 /*
  * Page table entry.

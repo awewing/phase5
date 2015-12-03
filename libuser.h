@@ -47,7 +47,7 @@ extern int  MboxCondReceive(int mboxID, void *msgPtr, int msgSize);
 //extern void VmDestroy(void);
 
 extern int VmInit(int mappings, int pages, int frames, int pagers,
-                  void *region);
+                  void **region);
 extern int VmDestroy(void);
 
 #endif

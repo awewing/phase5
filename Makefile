@@ -15,7 +15,7 @@ PHASE4LIB = patrickphase4
 #PHASE3LIB = patrickphase3debug
 #PHASE4LIB = patrickphase4debug
 
-HDRS = vm.h
+HDRS = vm.h libuser.h phase5.h phase4.h phase3.h phase2.h phase1.h
 
 INCLUDE = ./usloss/include
 
@@ -41,6 +41,10 @@ $(TARGET):	$(COBJS)
 $(TESTS):	$(TARGET)
 	$(CC) $(CFLAGS) -c $(TESTDIR)/$@.c
 	$(CC) $(LDFLAGS) -o $@ $@.o $(LIBS)
+
+libuser.a:	libuser.c
+	$(CC) $(CFLAGS) -c libuser.c
+	ar -r libuser.a libuser.o
 
 clean:
 	rm -f $(COBJS) $(TARGET) test?.o test? simple?.o simple? gen.o gen \

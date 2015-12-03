@@ -32,10 +32,10 @@ int faultBox; // fault Mailbox for pagers
 int pagerPids[MAXPAGERS];
 Process procTable[MAXPROC];
 FTE *frameTable;
-Block *blockTable;
+int *blockTable;
 int lastFrameIndex = 0;
 
-void *region;
+void *vmRegion;
 
 VmStats  vmStats;
 FaultMsg faults[MAXPROC]; /* Note that a process can have only
@@ -153,20 +153,19 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     if (status != USLOSS_MMU_OK) {
         USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
         return (void *) -1L;
-        //TODO abort(); this was in the skeleton but what is this?
     }
 
     // set the inturrupt handler
     USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
 
     // set the region
-    region = USLOSS_MmuRegion(&dummy);
+    vmRegion = USLOSS_MmuRegion(&dummy);
 
     // initialize frame table
     frameTable = malloc(sizeof(FTE) * frames);
     for (int i = 0; i < frames; i++) {
         //frameTable[i] = malloc(sizeof(FTE));
-        frameTable[i].state = -1;
+        frameTable[i].state = OPEN;
         frameTable[i].pid = -1;
         frameTable[i].page = -1;
     }
@@ -177,8 +176,21 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     	procTable[i].pageTable = NULL;
     }
 
-    // TODO initialize blocks
+    // TODO because we need disksizereal!!!!
+    // initialize blocks 
+int diskBlocks = 0;
+/*
+    int sector;
+    int track;
+    int disk;
+    DiskSize(1, &sector, &track, &disk);
 
+    int diskBlocks = 2 * disk;
+    blockTable = malloc(sizeof(int) * diskBlocks);
+    for (int i = 0; i < diskBlocks; i++) {
+        blockTable[i] = i * (sector * (track / 2));
+    }
+*/
     // Create the fault mailbox.
     faultBox = MboxCreate(MAXPROC, sizeof(FaultMsg));
 
@@ -195,8 +207,15 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     vmStats.frames = frames;
 
     // Initialize other vmStats fields.
-    vmStats.pages = pages;
-    vmStats.frames = frames;
+    vmStats.diskBlocks = diskBlocks;     // TODO how to calculate this
+    vmStats.freeFrames = frames;
+    vmStats.freeDiskBlocks = diskBlocks; // TODO how to calculate this
+    vmStats.switches = 0;
+    vmStats.faults = 0;
+    vmStats.new = 0;
+    vmStats.pageIns = 0;
+    vmStats.pageOuts = 0;
+    vmStats.replaced = 0;
 
     return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
@@ -311,15 +330,20 @@ static void FaultHandler(int dev/* MMU_INT */, void *arg  /* Offset within VM re
     
     // send the fault
     result = MboxSend(faultBox, &fault, sizeof(FaultMsg));
-    if (result != 0 && debugflag5) {
+    if (result < 0) {
         USLOSS_Console("process %d: FaultHandler can't send: %d\n", getpid(), result);
+        USLOSS_Halt(1);
     }
 
     // receive the reply
     int status;
     result = MboxReceive(fault.replyMbox, &status, sizeof(FaultMsg));
-    if (result != 0 && debugflag5) {
-        USLOSS_Console("process %d: FaultHandler can't receive: %d\n",getpid(), result);
+    if (result < 0) {
+        USLOSS_Console("process %d: FaultHandler can't receive: %d\n", getpid(), result);
+        USLOSS_Halt(1);
+    }
+    else if (debugflag5) {
+        USLOSS_Console("process %d: FaultHandler received reply\n", getpid());
     }
 
     // clean out the fault message
@@ -356,12 +380,17 @@ static int Pager(char *buf) {
         FaultMsg fault;
 
         result = MboxReceive(faultBox, &fault, sizeof(FaultMsg));
-        if (result != 0 && debugflag5) {
-            USLOSS_Console("process %d: Pager can't receive: %d\n",getpid(), result);
+        if (result == -1) {
+            USLOSS_Console("process %d: Pager can't receive: %d\n", getpid(), result);
+            USLOSS_Halt(1);
+        }
+        else if (debugflag5) {
+            USLOSS_Console("process %d: Pager received fault from: %d\n", getpid(), fault.pid);
         }
 
         int pid = fault.pid;
-        int page = fault.addr; // convert to a page
+        int page = (int) ((long) fault.addr / USLOSS_MmuPageSize()); // convert to a page
+        int frame;
 
         // check if zapped while waiting
         if (isZapped()) {
@@ -378,17 +407,29 @@ static int Pager(char *buf) {
             }
 
             // check if this node is open
-            if (frameTable[lastFrameIndex].state == 1) {
-                frameTable[lastFrameIndex].state = -1;
+            if (frameTable[lastFrameIndex].state == OPEN) {
+                // check if this frame was previously in use
+                if (frameTable[lastFrameIndex].pid != -1) {
+                    // TODO it was previously in use and needs to be written to the disk
+
+                    // inc page outs
+                    vmStats.pageOuts++;
+
+                    // TODO something about dirty bits
+                }
+
+                frameTable[lastFrameIndex].state = CLOSED;
                 frameTable[lastFrameIndex].pid = pid;
                 frameTable[lastFrameIndex].page = page;
+
+                frame = lastFrameIndex;
 
                 lastFrameIndex++;
                 break;
             }
             // otherwise set it to be open next time
             else {
-                frameTable[lastFrameIndex].state = 1;
+                frameTable[lastFrameIndex].state = OPEN;
 
                 lastFrameIndex++;
             }
@@ -397,22 +438,102 @@ static int Pager(char *buf) {
         /* Load page into frame from disk, if necessary */
         // check if necessary
         if (procTable[pid % MAXPROC].pageTable[page].diskState == 1) {
-            // TODO disk stuff
-            // TODO update the pagetable
+            // inc page ins
+            vmStats.pageIns++;
+
+            // disk size variables
+            int sector;
+            int track;
+            int disk;
+
+            // TODO this whole part, wtf, which disk unit/track/sector
+            // find out where on the disk it is stored
+            DiskSize(1, &sector, &track, &disk);
+            int numSectors = USLOSS_MmuPageSize() / sector;
+            int start = procTable[pid % MAXPROC].pageTable[page].diskBlock / sector;
+
+            // read from that location in memory
+            char *buf = malloc(USLOSS_MmuPageSize());
+            diskReadReal(1, start, start, numSectors, buf);
+
+            // map the memory
+            result = USLOSS_MmuMap(0, page, frame, USLOSS_MMU_PROT_RW);
+            if (result != USLOSS_MMU_OK) {
+                USLOSS_Console("process %d: Pager failed mapping: %d\n", getpid(), result);
+                USLOSS_Halt(1);
+            }
+
+            // calculate where in the vmregion to write
+            void *destination = vmRegion + (USLOSS_MmuPageSize() * page);
+
+            // copy what was on disk to the frame
+            memcpy(destination, buf, USLOSS_MmuPageSize());
+
+            // unmap
+            //result = USLOSS_MmuUnmap(0, page);
+            if (result != USLOSS_MMU_OK) {
+                USLOSS_Console("process %d: Pager failed unmapping: %d\n", getpid(), result);
+                USLOSS_Halt(1);
+            }
+
+            // TODO diskblock stuff
+        }
+        else {
+            // inc new
+            vmStats.new++;
+
+            // map the memory
+            result = USLOSS_MmuMap(0, page, frame, USLOSS_MMU_PROT_RW);
+            if (result != USLOSS_MMU_OK) {
+                USLOSS_Console("process %d: Pager failed mapping: %d\n", getpid(), result);
+                USLOSS_Halt(1);
+            }
+
+            // calculate where in the vmregion to write
+            void *destination = vmRegion + (USLOSS_MmuPageSize() * page);
+
+            // copy nothing into the fram
+            memset(destination, 0, USLOSS_MmuPageSize());
+
+            // unmap
+            //result = USLOSS_MmuUnmap(0, page);
+            if (result != USLOSS_MMU_OK) {
+                USLOSS_Console("process %d: Pager failed unmapping: %d\n", getpid(), result);
+                USLOSS_Halt(1);
+            }
         }
 
+        // update the page table
+        procTable[pid % MAXPROC].pageTable[page].memState = INCORE;
+        procTable[pid % MAXPROC].pageTable[page].diskState = UNUSED;        
+        procTable[pid % MAXPROC].pageTable[page].frame = frame;
+        procTable[pid % MAXPROC].pageTable[page].diskBlock = -1;
+
         /* Unblock waiting (faulting) process */
-        MboxSend(fault.replyMbox, "done", sizeof(char) * 4);
+        result = MboxSend(fault.replyMbox, "done", sizeof(char) * 4);
+        if (result != USLOSS_MMU_OK) {
+            USLOSS_Console("process %d: Pager failed sending: %d\n", getpid(), result);
+            USLOSS_Halt(1);
+        }
     }
+
     return 0;
 } /* Pager */
 
 void forkReal(int pid) {
     if (debugflag5) {
-        USLOSS_Console("process %d: forkReal\n", getpid());
+        USLOSS_Console("process %d: forkReal\n", pid);
     }
 
-    // TODO maybe check input?
+    // check if vm has started yet
+    if (!vmOn) {
+        return;
+    }
+
+    // check that pid is valid
+    if (pid < 0) {
+        return;
+    }
 
     // create a new process
     procTable[pid % MAXPROC].numPages = numPages;
@@ -430,16 +551,27 @@ void forkReal(int pid) {
 
 void switchReal(int old, int new) {
     if (debugflag5) {
-        USLOSS_Console("process %d: switchReal\n", getpid());
+        USLOSS_Console("process %d: switchReal, old: %d, new: %d\n", old, old, new);
     }
+
+    // update vmstats
+    vmStats.switches++;
 }
 
 void quitReal(int pid) {
     if (debugflag5) {
-        USLOSS_Console("process %d: quitReal\n", getpid());
+        USLOSS_Console("process %d: quitReal\n", pid);
     }
 
-    // TODO maybe checks on input
+    // check if vm has started yet
+    if (!vmOn) {
+        return;
+    }
+
+    // check that pid is valid
+    if (pid < 0) {
+        return;
+    }
 
     // release the sems for all PTE for this process
     for (int i = 0; i < procTable[pid % MAXPROC].numPages; i++) {
@@ -449,7 +581,7 @@ void quitReal(int pid) {
     // clean up all frames for this process
     for (int i = 0; i < numFrames; i++) {
         if (frameTable[i].pid == pid) {
-            frameTable[i].state = -1;
+            frameTable[i].state = OPEN;
             frameTable[i].pid = -1;
             frameTable[i].page = -1;
         }

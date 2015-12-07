@@ -27,6 +27,7 @@ int numPages = 0;
 int numFrames = 0;
 int numPagers = 0;
 int diskBlocks;
+int nextBlock = 0;
 
 int faultBox; // fault Mailbox for pagers
 
@@ -40,6 +41,12 @@ int frameSem;
 int statSem;
 
 void *vmRegion;
+
+// swap disk info
+int diskUnit;
+int diskUnitSectorSize;
+int diskUnitTrackSize;
+int diskUnitSize;
 
 VmStats  vmStats;
 FaultMsg faults[MAXPROC]; /* Note that a process can have only
@@ -96,6 +103,15 @@ int start4(char *arg) {
     int track;
     int disk;
     DiskSize(1, &sector, &track, &disk);
+
+    diskUnit = 1;
+    diskUnitSectorSize = sector;
+    diskUnitTrackSize = track;
+    diskUnitSize = disk;
+
+    if (debugflag5) {
+        USLOSS_Console("start4(): disksize:\n\tSector size is %d bytes\n\tTrack size is %d sectors\n\tdisk size is %d tracks\n", sector, track, disk);
+    }
 
     diskBlocks = disk;
     blockTable = malloc(sizeof(int) * diskBlocks);
@@ -224,6 +240,10 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
     vmStats.pageIns = 0;
     vmStats.pageOuts = 0;
     vmStats.replaced = 0;
+
+    if (debugflag5) {
+        USLOSS_Console("VmInit(): size of a page is %d bytes\n", USLOSS_MmuPageSize());
+    }
 
     return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
@@ -432,7 +452,50 @@ static int Pager(char *buf) {
                     vmStats.pageOuts++;
                     semvReal(statSem);
 
-                    // TODO something about dirty bits
+                    // Find address of our source (frame where our page is)
+
+                    int oldPage = frameTable[frame].page;
+                    int *fPtr = NULL;
+                    int *protPtr = NULL;
+                    int result = USLOSS_MmuGetMap(0, oldPage, fPtr, protPtr); 
+
+                    if (result == USLOSS_MMU_ERR_NOMAP) {
+                        USLOSS_Console("Pager(): Trying to access a frame with no map to the disk\n");
+                        USLOSS_Halt(1);
+                    }
+
+                    int *accessPtr = NULL;
+                    USLOSS_MmuGetAccess(lastFrameIndex, accessPtr);
+                    int dirtyBit = (*accessPtr >> USLOSS_MMU_DIRTY) & 1;
+                    
+                    // case for dirty bits
+                    if ( dirtyBit == 1) {
+                        // write to disk
+
+                        // find out where to write
+                        int pageIndex = frameTable[lastFrameIndex].page;
+
+                        Process tempProc = procTable[pid];
+                        int pageDiskBlock = tempProc.pageTable[pageIndex].diskBlock;
+
+                        if (pageDiskBlock == -1) {
+                            //get a new block(sector) to store the page into
+                            pageDiskBlock = nextBlock;
+                            tempProc.pageTable[pageIndex].diskBlock = nextBlock;
+                            nextBlock++;
+                        }
+
+                        // Create buffer to store page
+                        char *buffer = NULL;
+                        // memcpy / strcpy to buffer
+                        memcpy(buffer, fPtr, USLOSS_MmuPageSize());
+
+                        // diskWrite(buffer, place)
+                        diskWriteReal(diskUnit, pageDiskBlock, 0, diskUnitTrackSize, buffer);
+                    }
+
+                    // zero out the frame
+                    memset(fPtr, 0, USLOSS_MmuPageSize());
                 }
 
                 frameTable[lastFrameIndex].state = CLOSED;

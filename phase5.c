@@ -18,7 +18,7 @@
  */
 
 /******************** Globals ********************/
-int debugflag5 = 0;
+int debugflag5 = 1;
 
 int vmOn = 0; // if the vm has already been started
 
@@ -445,33 +445,38 @@ static int Pager(char *buf) {
             if (frameTable[lastFrameIndex].state == OPEN) {
                 // check if this frame was previously in use
                 if (frameTable[lastFrameIndex].pid != -1) {
-                    // TODO it was previously in use and needs to be written to the disk
+                    // it was previously in use and needs to be written to the disk
 
+                    // gain access to the frame
+                    int oldPage = frameTable[frame].page;
+                    int mapResult = USLOSS_MmuMap(0, oldPage, frame, USLOSS_MMU_PROT_RW);
+
+                    if (mapResult != USLOSS_MMU_OK) {
+                        USLOSS_Console("Pager(): MmuMap() returned an error%d, halting\n", mapResult);
+                        USLOSS_Halt(1);
+                    }
+
+                    if (debugflag5) {
+                        USLOSS_Console("Pager(): replaced oldPage %d, frame %d\n", oldPage, frame);
+                    }
                     // inc page outs
                     sempReal(statSem);
                     vmStats.pageOuts++;
                     semvReal(statSem);
 
-                    // Find address of our source (frame where our page is)
-
-                    int oldPage = frameTable[frame].page;
-                    int *fPtr = NULL;
-                    int *protPtr = NULL;
-                    int result = USLOSS_MmuGetMap(0, oldPage, fPtr, protPtr); 
-
-                    if (result == USLOSS_MMU_ERR_NOMAP) {
-                        USLOSS_Console("Pager(): Trying to access a frame with no map to the disk\n");
-                        USLOSS_Halt(1);
+                    int accessPtr;
+                    USLOSS_MmuGetAccess(lastFrameIndex, &accessPtr);
+                    if (debugflag5) {
+                        USLOSS_Console("Pager(): returned from getAccess, testing dirty bit\n");
                     }
-
-                    int *accessPtr = NULL;
-                    USLOSS_MmuGetAccess(lastFrameIndex, accessPtr);
-                    int dirtyBit = (*accessPtr >> USLOSS_MMU_DIRTY) & 1;
+                    int dirtyBit = (accessPtr >> USLOSS_MMU_DIRTY) & 1;
                     
                     // case for dirty bits
                     if ( dirtyBit == 1) {
                         // write to disk
-
+                        if (debugflag5) {
+                            USLOSS_Console("Pager(): bit is dirty\n");
+                        }
                         // find out where to write
                         int pageIndex = frameTable[lastFrameIndex].page;
 
@@ -488,14 +493,29 @@ static int Pager(char *buf) {
                         // Create buffer to store page
                         char *buffer = NULL;
                         // memcpy / strcpy to buffer
-                        memcpy(buffer, fPtr, USLOSS_MmuPageSize());
+                        memcpy(buffer, frame, USLOSS_MmuPageSize());
 
                         // diskWrite(buffer, place)
                         diskWriteReal(diskUnit, pageDiskBlock, 0, diskUnitTrackSize, buffer);
                     }
 
+                    if (debugflag5) {
+                        USLOSS_Console("Pager(): zeroing out frame now\n");
+                    }
+
                     // zero out the frame
-                    memset(fPtr, 0, USLOSS_MmuPageSize());
+                    memset(frame, 0, USLOSS_MmuPageSize());
+
+                    if (debugflag5) {
+                        USLOSS_Console("Pager(): frame zeroed, unmapping old page\n");
+                    }
+
+                    // Unmap the old page
+                    int unmapResult = USLOSS_MmuUnmap(0, oldPage);
+                    if (unmapResult != USLOSS_MMU_OK) {
+                        USLOSS_Console("Pager(): unmapResult gave error %d, halting\n", unmapResult);
+                        USLOSS_Halt(1);
+                    }
                 }
 
                 frameTable[lastFrameIndex].state = CLOSED;

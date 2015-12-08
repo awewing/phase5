@@ -18,7 +18,7 @@
  */
 
 /******************** Globals ********************/
-int debugflag5 = 1;
+int debugflag5 = 0;
 
 int vmOn = 0; // if the vm has already been started
 
@@ -435,6 +435,7 @@ static int Pager(char *buf) {
          * replace a page (perhaps write to disk) */
         // start mutual exclussion
         sempReal(frameSem);
+        int wasInUse = 0;
         while (1) {
             // check if we are pointing beyond the edge of the array
             if (lastFrameIndex == numFrames) {
@@ -443,7 +444,11 @@ static int Pager(char *buf) {
 
             // check if this node is open
             if (frameTable[lastFrameIndex].state == OPEN) {
+                // set flag if frame was previously in use
 
+                if (frameTable[lastFrameIndex].pid != -1) {
+                    wasInUse = 1;
+                }
                 frameTable[lastFrameIndex].state = CLOSED;
                 frameTable[lastFrameIndex].pid = pid;
                 frameTable[lastFrameIndex].page = page;
@@ -466,7 +471,7 @@ static int Pager(char *buf) {
          * Handle old page
          */
         // check if this frame was previously in use
-        if (frameTable[frame].pid != -1) {
+        if (wasInUse == 1) {
             // it was previously in use and needs to be written to the disk
 
             // gain access to the frame
@@ -491,6 +496,9 @@ static int Pager(char *buf) {
             // inc page outs
             sempReal(statSem);
             vmStats.pageOuts++;
+            if (debugflag5) {
+                USLOSS_Console("vmStats.pageOuts = %d\n", vmStats.pageOuts);
+            }
             semvReal(statSem);
 
             int accessPtr;

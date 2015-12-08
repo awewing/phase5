@@ -511,6 +511,16 @@ static int Pager(char *buf) {
                     
             // case for dirty bits
             if ( dirtyBit == 1) {
+
+                // inc page outs
+                sempReal(statSem);
+                vmStats.pageOuts++;
+                if (debugflag5) {
+                    USLOSS_Console("vmStats.pageOuts = %d\n", vmStats.pageOuts);
+                }
+                semvReal(statSem);
+
+
                 // write to disk
                 if (debugflag5) {
                     USLOSS_Console("Pager(): bit is dirty\n");
@@ -620,7 +630,7 @@ static int Pager(char *buf) {
             free(buf);
 
             // unmap
-            //result = USLOSS_MmuUnmap(0, page);
+            result = USLOSS_MmuUnmap(0, page);
             if (result != USLOSS_MMU_OK) {
                 USLOSS_Console("process %d: Pager failed unmapping: %d\n", getpid(), result);
                 USLOSS_Halt(1);

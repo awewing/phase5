@@ -443,99 +443,6 @@ static int Pager(char *buf) {
 
             // check if this node is open
             if (frameTable[lastFrameIndex].state == OPEN) {
-                // check if this frame was previously in use
-                if (frameTable[lastFrameIndex].pid != -1) {
-                    // it was previously in use and needs to be written to the disk
-
-                    // gain access to the frame
-                    int oldPage = frameTable[frame].page;
-
-                    // map to oldPage for access
-                    if (debugflag5) {
-                        USLOSS_Console("Mapping old page now\n");
-                    }
-                    int mapResult = USLOSS_MmuMap(0, oldPage, frame, USLOSS_MMU_PROT_RW);
-                    if (debugflag5) {
-                        USLOSS_Console("Map to oldpage: %d successful\n", oldPage);
-                    }
-
-                    if (mapResult != USLOSS_MMU_OK) {
-                        USLOSS_Console("Pager(): MmuMap() returned an error%d, halting\n", mapResult);
-                        USLOSS_Halt(1);
-                    }
-
-                    if (debugflag5) {
-                        USLOSS_Console("Pager(): replaced oldPage %d, frame %d\n", oldPage, frame);
-                    }
-                    // inc page outs
-                    sempReal(statSem);
-                    vmStats.pageOuts++;
-                    semvReal(statSem);
-
-                    int accessPtr;
-                    USLOSS_MmuGetAccess(lastFrameIndex, &accessPtr);
-                    if (debugflag5) {
-                        USLOSS_Console("Pager(): returned from getAccess, testing dirty bit\n");
-                    }
-                    int dirtyBit = (accessPtr >> USLOSS_MMU_DIRTY) & 1;
-                    
-                    // case for dirty bits
-                    if ( dirtyBit == 1) {
-                        // write to disk
-                        if (debugflag5) {
-                            USLOSS_Console("Pager(): bit is dirty\n");
-                        }
-                        // find out where to write
-                        int pageIndex = frameTable[lastFrameIndex].page;
-
-                        Process tempProc = procTable[pid];
-                        int pageDiskBlock = tempProc.pageTable[pageIndex].diskBlock;
-
-                        if (pageDiskBlock == -1) {
-                            //get a new block(sector) to store the page into
-                            pageDiskBlock = nextBlock;
-                            tempProc.pageTable[pageIndex].diskBlock = nextBlock;
-                            nextBlock++;
-                        }
-
-                        // Create buffer to store page
-                        void *buffer = malloc(USLOSS_MmuPageSize());
-                        // memcpy / strcpy to buffer
-                        memcpy(buffer, frame, USLOSS_MmuPageSize());
-
-                        // diskWrite(buffer, place)
-                        diskWriteReal(diskUnit, pageDiskBlock, 0, diskUnitTrackSize, buffer);
-                    }
-
-                    if (debugflag5) {
-                        USLOSS_Console("Pager(): finding pageLoctaion for oldPage: %d\n", oldPage);
-                        USLOSS_Console("\tvmRegion address: %d\n", vmRegion);
-                    }
-
-                    // zero out the frame
-                    int pageLocation = (int*) (vmRegion + (oldPage * USLOSS_MmuPageSize()));
-
-                    if (debugflag5) {
-                        USLOSS_Console("Pager(): zeroing out frame now at address: %d\n", pageLocation);
-                        USLOSS_Console("\toldPage = %d\n", oldPage);
-                    }
-
-                    memset(pageLocation, '0', USLOSS_MmuPageSize());
-
-                    if (debugflag5) {
-                        USLOSS_Console("Pager(): frame zeroed, unmapping old page\n");
-                    }
-
-                    // Unmap the old page
-                    if (debugflag5) {
-                        USLOSS_Console("Pager(): unmapping oldPage: %d\n", oldPage);
-                    }
-                    int unmapResult = USLOSS_MmuUnmap(0, oldPage);
-                    if (unmapResult != USLOSS_MMU_OK) {
-                        USLOSS_Console("Pager(): unmapResult gave error %d, halting\n", unmapResult);
-                        USLOSS_Halt(1);
-                    }
-                }
 
                 frameTable[lastFrameIndex].state = CLOSED;
                 frameTable[lastFrameIndex].pid = pid;
@@ -543,6 +450,7 @@ static int Pager(char *buf) {
 
                 frame = lastFrameIndex;
 
+                // We have found our frame, break
                 lastFrameIndex++;
                 break;
             }
@@ -554,13 +462,108 @@ static int Pager(char *buf) {
             }
         }
 
+        /*
+         * Handle old page
+         */
+        // check if this frame was previously in use
+        if (frameTable[frame].pid != -1) {
+            // it was previously in use and needs to be written to the disk
+
+            // gain access to the frame
+            int oldPage = frameTable[frame].page;
+
+            // map to oldPage for access
+            if (debugflag5) {
+                USLOSS_Console("Mapping old page now\n");
+            }
+            int mapResult = USLOSS_MmuMap(0, oldPage, frame, USLOSS_MMU_PROT_RW);
+
+            if (mapResult != USLOSS_MMU_OK) {
+                USLOSS_Console("Pager(): MmuMap() returned an error%d, halting\n", mapResult);
+                USLOSS_Halt(1);
+            }
+
+            if (debugflag5) {
+                USLOSS_Console("Pager(): Map to oldpage: %d successful\n", oldPage);
+                USLOSS_Console("Pager(): replaced oldPage %d, frame %d\n", oldPage, frame);
+            }
+
+            // inc page outs
+            sempReal(statSem);
+            vmStats.pageOuts++;
+            semvReal(statSem);
+
+            int accessPtr;
+            USLOSS_MmuGetAccess(frame, &accessPtr);
+            if (debugflag5) {
+                USLOSS_Console("Pager(): returned from getAccess, testing dirty bit\n");
+            }
+            int dirtyBit = (accessPtr >> USLOSS_MMU_DIRTY) & 1;
+                    
+            // case for dirty bits
+            if ( dirtyBit == 1) {
+                // write to disk
+                if (debugflag5) {
+                    USLOSS_Console("Pager(): bit is dirty\n");
+                }
+                
+                // get diskBlock to write to
+                Process tempProc = procTable[pid % MAXPROC];
+                int pageDiskBlock = tempProc.pageTable[oldPage].diskBlock;
+
+                if (pageDiskBlock == -1) {
+                    //get a new block(sector) to store the page into
+                    pageDiskBlock = nextBlock;
+                    tempProc.pageTable[oldPage].diskBlock = nextBlock;
+                    nextBlock++;
+                }
+
+                // Create buffer to store page
+                void *buffer = malloc(USLOSS_MmuPageSize());
+                
+                // memcpy to buffer and diskWrite to disk
+                memcpy(buffer, frame, USLOSS_MmuPageSize());
+                diskWriteReal(diskUnit, pageDiskBlock, 0, diskUnitTrackSize, buffer);
+
+                // free the buffer
+                free(buffer);
+            }
+
+            if (debugflag5) {
+                USLOSS_Console("Pager(): finding pageLoctaion for oldPage: %d\n", oldPage);
+                USLOSS_Console("\tvmRegion address: %d\n", vmRegion);
+            }
+
+            // zero out the frame
+            int oldPageLocation = (int*) (vmRegion + (oldPage * USLOSS_MmuPageSize()));
+
+            if (debugflag5) {
+                USLOSS_Console("Pager(): zeroing out frame now at address: %d\n", oldPageLocation);
+                USLOSS_Console("\toldPage = %d\n", oldPage);
+            }
+
+            memset(oldPageLocation, '0', USLOSS_MmuPageSize());
+
+            if (debugflag5) {
+                USLOSS_Console("Pager(): frame zeroed, unmapping old page\n");
+            }
+
+            // Unmap the old page
+            if (debugflag5) {
+                USLOSS_Console("Pager(): unmapping oldPage: %d\n", oldPage);
+            }
+            int unmapResult = USLOSS_MmuUnmap(0, oldPage);
+            if (unmapResult != USLOSS_MMU_OK) {
+                USLOSS_Console("Pager(): unmapResult gave error %d, halting\n", unmapResult);
+                USLOSS_Halt(1);
+            }
+        }
         // end mutual exclussion
         semvReal(frameSem);
 
         if (debugflag5) {
             USLOSS_Console("Pager(): beggining to load the new page\n");
         }
-
         /* Load page into frame from disk, if necessary */
         // check if necessary
         if (procTable[pid % MAXPROC].pageTable[page].diskState == 1) {
@@ -570,19 +573,19 @@ static int Pager(char *buf) {
             semvReal(statSem);
 
             // disk size variables
-            int sector;
-            int track;
-            int disk;
+            // int sector;
+            // int track;
+            // int disk;
 
             // TODO this whole part, wtf, which disk unit/track/sector
             // find out where on the disk it is stored
-            DiskSize(1, &sector, &track, &disk);
-            int numSectors = USLOSS_MmuPageSize() / sector;
-            int start = procTable[pid % MAXPROC].pageTable[page].diskBlock / sector;
+            // DiskSize(1, &sector, &track, &disk);
+            // int numSectors = USLOSS_MmuPageSize() / sector;
+            int start = procTable[pid % MAXPROC].pageTable[page].diskBlock;
 
             // read from that location in memory
             char *buf = malloc(USLOSS_MmuPageSize());
-            diskReadReal(1, start, start, numSectors, buf);
+            diskReadReal(1, start, 0, diskUnitTrackSize, buf);
 
             // map the memory
             result = USLOSS_MmuMap(0, page, frame, 3);
@@ -594,8 +597,15 @@ static int Pager(char *buf) {
             // calculate where in the vmregion to write
             void *destination = vmRegion + (USLOSS_MmuPageSize() * page);
 
+            if (debugflag5) {
+                USLOSS_Console("Pager(): load destination = %d\n", destination);
+            }
+
             // copy what was on disk to the frame
             memcpy(destination, buf, USLOSS_MmuPageSize());
+
+            // free buffer
+            free(buf);
 
             // unmap
             //result = USLOSS_MmuUnmap(0, page);

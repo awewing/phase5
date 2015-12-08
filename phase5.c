@@ -449,7 +449,15 @@ static int Pager(char *buf) {
 
                     // gain access to the frame
                     int oldPage = frameTable[frame].page;
+
+                    // map to oldPage for access
+                    if (debugflag5) {
+                        USLOSS_Console("Mapping old page now\n");
+                    }
                     int mapResult = USLOSS_MmuMap(0, oldPage, frame, USLOSS_MMU_PROT_RW);
+                    if (debugflag5) {
+                        USLOSS_Console("Map to oldpage: %d successful\n", oldPage);
+                    }
 
                     if (mapResult != USLOSS_MMU_OK) {
                         USLOSS_Console("Pager(): MmuMap() returned an error%d, halting\n", mapResult);
@@ -491,7 +499,7 @@ static int Pager(char *buf) {
                         }
 
                         // Create buffer to store page
-                        char *buffer = NULL;
+                        void *buffer = malloc(USLOSS_MmuPageSize());
                         // memcpy / strcpy to buffer
                         memcpy(buffer, frame, USLOSS_MmuPageSize());
 
@@ -500,17 +508,28 @@ static int Pager(char *buf) {
                     }
 
                     if (debugflag5) {
-                        USLOSS_Console("Pager(): zeroing out frame now\n");
+                        USLOSS_Console("Pager(): finding pageLoctaion for oldPage: %d\n", oldPage);
+                        USLOSS_Console("\tvmRegion address: %d\n", vmRegion);
                     }
 
                     // zero out the frame
-                    memset(frame, 0, USLOSS_MmuPageSize());
+                    int pageLocation = (int*) (vmRegion + (oldPage * USLOSS_MmuPageSize()));
+
+                    if (debugflag5) {
+                        USLOSS_Console("Pager(): zeroing out frame now at address: %d\n", pageLocation);
+                        USLOSS_Console("\toldPage = %d\n", oldPage);
+                    }
+
+                    memset(pageLocation, '0', USLOSS_MmuPageSize());
 
                     if (debugflag5) {
                         USLOSS_Console("Pager(): frame zeroed, unmapping old page\n");
                     }
 
                     // Unmap the old page
+                    if (debugflag5) {
+                        USLOSS_Console("Pager(): unmapping oldPage: %d\n", oldPage);
+                    }
                     int unmapResult = USLOSS_MmuUnmap(0, oldPage);
                     if (unmapResult != USLOSS_MMU_OK) {
                         USLOSS_Console("Pager(): unmapResult gave error %d, halting\n", unmapResult);
@@ -537,6 +556,10 @@ static int Pager(char *buf) {
 
         // end mutual exclussion
         semvReal(frameSem);
+
+        if (debugflag5) {
+            USLOSS_Console("Pager(): beggining to load the new page\n");
+        }
 
         /* Load page into frame from disk, if necessary */
         // check if necessary

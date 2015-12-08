@@ -243,6 +243,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers) {
 
     if (debugflag5) {
         USLOSS_Console("VmInit(): size of a page is %d bytes\n", USLOSS_MmuPageSize());
+        USLOSS_Console("VmInit(): mappings = %d, pages = %d, frames = %d, pagers = %d\n", mappings, pages, frames, pagers);
     }
 
     return USLOSS_MmuRegion(&dummy);
@@ -528,9 +529,12 @@ static int Pager(char *buf) {
 
                 // Create buffer to store page
                 void *buffer = malloc(USLOSS_MmuPageSize());
-                
+
+                // address of frame
+                int *frameAddr = vmRegion + (frame * USLOSS_MmuPageSize());
+ 
                 // memcpy to buffer and diskWrite to disk
-                memcpy(buffer, frame, USLOSS_MmuPageSize());
+                memcpy(buffer, frameAddr, USLOSS_MmuPageSize());
                 diskWriteReal(diskUnit, pageDiskBlock, 0, diskUnitTrackSize, buffer);
 
                 // free the buffer
@@ -609,7 +613,7 @@ static int Pager(char *buf) {
                 USLOSS_Console("Pager(): load destination = %d\n", destination);
             }
 
-            // copy what was on disk to the frame
+            // copy contents of buffer to the frame
             memcpy(destination, buf, USLOSS_MmuPageSize());
 
             // free buffer
@@ -760,7 +764,8 @@ void quitReal(int pid) {
     }
 
     // reset this value in the procTable
-    procTable[pid % MAXPROC].numPages;
+    // TODO not sure about following line
+    procTable[pid % MAXPROC].numPages = 0;
     free(procTable[pid % MAXPROC].pageTable);
 }
 
@@ -776,7 +781,7 @@ static void mboxCreate(systemArgs *args) {
     int numslots = (long) args->arg1;
     int slotsize = (long) args->arg2;
 
-    int *id;
+    int *id = NULL;
     int res = Mbox_Create(numslots, slotsize, id);
 
     args->arg1 = (void *) id;

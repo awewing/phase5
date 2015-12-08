@@ -18,7 +18,7 @@
  */
 
 /******************** Globals ********************/
-int debugflag5 = 1;
+int debugflag5 = 0;
 
 int vmOn = 0; // if the vm has already been started
 

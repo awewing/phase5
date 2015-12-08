@@ -15,11 +15,13 @@ PHASE4LIB = patrickphase4
 #PHASE3LIB = patrickphase3debug
 #PHASE4LIB = patrickphase4debug
 
-HDRS = vm.h libuser.h phase5.h phase4.h phase3.h phase2.h phase1.h
+HDRS = vm.h
 
 INCLUDE = ./usloss/include
 
 CFLAGS = -Wall -g -std=gnu99 -I${INCLUDE} -I.
+
+UNAME := $(shell uname -s)
 
 ifeq ($(UNAME), Darwin)
         CFLAGS += -D_XOPEN_SOURCE
@@ -37,20 +39,14 @@ LIBS = $(TESTDIR)/Tconsole.o -lpatrickphase4 -lpatrickphase3 -lpatrickphase2 \
 $(TARGET):	$(COBJS)
 		$(AR) -r $@ $(COBJS) 
 
-#$(TESTS):	$(TARGET) $(TESTDIR)/$$@.c
 $(TESTS):	$(TARGET)
 	$(CC) $(CFLAGS) -c $(TESTDIR)/$@.c
 	$(CC) $(LDFLAGS) -o $@ $@.o $(LIBS)
-
-libuser.a:	libuser.c
-	$(CC) $(CFLAGS) -c libuser.c
-	ar -r libuser.a libuser.o
 
 clean:
 	rm -f $(COBJS) $(TARGET) test?.o test? simple?.o simple? gen.o gen \
               chaos.o chaos quit.o quit replace?.o replace? outOfSwap.o \
               outOfSwap clock.o clock core term[0-3].out
 
-submit: $(CSRCS) $(HDRS) $(TURNIN)
+submit: $(CSRCS) $(HDRS)
 	tar cvzf phase5.tgz $(CSRCS) $(HDRS) Makefile
-

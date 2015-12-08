@@ -543,14 +543,14 @@ static int Pager(char *buf) {
             }
 
             // zero out the frame
-            int oldPageLocation = (int*) (vmRegion + (oldPage * USLOSS_MmuPageSize()));
+            int *oldPageLocation = vmRegion + (oldPage * USLOSS_MmuPageSize());
 
             if (debugflag5) {
                 USLOSS_Console("Pager(): zeroing out frame now at address: %d\n", oldPageLocation);
                 USLOSS_Console("\toldPage = %d\n", oldPage);
             }
 
-            memset(oldPageLocation, '0', USLOSS_MmuPageSize());
+            memset(oldPageLocation, 0, USLOSS_MmuPageSize());
 
             if (debugflag5) {
                 USLOSS_Console("Pager(): frame zeroed, unmapping old page\n");

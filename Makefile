@@ -49,4 +49,4 @@ clean:
               outOfSwap clock.o clock core term[0-3].out
 
 submit: $(CSRCS) $(HDRS)
-	tar cvzf phase5.tgz $(CSRCS) $(HDRS) Makefile
+	tar cvzf phase5.tgz $(CSRCS) $(HDRS) Makefile libuser.h phase5.h provided_prototypes.h

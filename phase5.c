@@ -361,7 +361,7 @@ static void FaultHandler(int dev/* MMU_INT */, void *arg  /* Offset within VM re
     FaultMsg fault = faults[getpid() % MAXPROC];
     fault.pid = getpid();
     fault.addr = addr;
-    fault.replyMbox = MboxCreate(1, sizeof(int));
+    fault.replyMbox = MboxCreate(0, sizeof(int));
     
     // send the fault
     result = MboxSend(faultBox, &fault, sizeof(FaultMsg));
@@ -430,6 +430,9 @@ static int Pager(char *buf) {
 
         // check if zapped while waiting
         if (isZapped()) {
+            sempReal(statSem);
+            vmStats.switches-=2;
+            semvReal(statSem);
             break;
         }
 
@@ -574,6 +577,7 @@ static int Pager(char *buf) {
                 if (debugflag5) {
                     USLOSS_Console("Pager(): writting to disk block %d\n", pageDiskBlock);
                 }
+//TODO here is the problem!!!!!!
                 diskWriteReal(diskUnit, pageDiskBlock, 0, diskUnitTrackSize, buffer);
 
                 // block until write complete?
@@ -622,6 +626,7 @@ static int Pager(char *buf) {
         if (debugflag5) {
             USLOSS_Console("Pager(): beggining to load the new page\n");
         }
+
         /* Load page into frame from disk, if necessary */
         // check if necessary
         if (procTable[pid % MAXPROC].pageTable[page].diskBlock != -1) {
@@ -630,14 +635,6 @@ static int Pager(char *buf) {
             vmStats.pageIns++;
             semvReal(statSem);
 
-            // disk size variables
-            // int sector;
-            // int track;
-            // int disk;
-
-            // TODO this whole part, wtf, which disk unit/track/sector
-            // find out where on the disk it is stored
-            // DiskSize(1, &sector, &track, &disk);
             // int numSectors = USLOSS_MmuPageSize() / sector;
             int start = procTable[pid % MAXPROC].pageTable[page].diskBlock;
 
@@ -794,6 +791,8 @@ void switchReal(int old, int new) {
         }
     }
 
+
+//dumpProcesses();
 }
 
 void quitReal(int pid) {

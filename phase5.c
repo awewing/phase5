@@ -505,7 +505,12 @@ static int Pager(char *buf) {
                 USLOSS_Console("Pager(): returned from getAccess, testing dirty bit\n");
             }
             int dirtyBit = (accessPtr >> USLOSS_MMU_DIRTY) & 1;
-                    
+            int altDirty = accessPtr & USLOSS_MMU_DIRTY;        
+
+            if (debugflag5) {
+                USLOSS_Console("dirtyBit = %d\n", dirtyBit);
+                USLOSS_Console("aldDirty = %d\n", altDirty);
+            }
             // case for dirty bits
             if ( dirtyBit == 1) {
 
@@ -590,7 +595,7 @@ static int Pager(char *buf) {
         }
         /* Load page into frame from disk, if necessary */
         // check if necessary
-        if (procTable[pid % MAXPROC].pageTable[page].diskState == 1) {
+        if (procTable[pid % MAXPROC].pageTable[page].diskBlock != -1) {
             // inc page ins
             sempReal(statSem);
             vmStats.pageIns++;
@@ -662,6 +667,14 @@ static int Pager(char *buf) {
             }
         }
 
+        int flag = procTable[pid % MAXPROC].pageTable[page].newFlag;
+        if (flag == 0) {
+            procTable[pid % MAXPROC].pageTable[page].newFlag = 1;
+            sempReal(statSem);
+            vmStats.new++;
+            semvReal(statSem);
+        } 
+
         // update the page table
         procTable[pid % MAXPROC].pageTable[page].memState = INCORE;
         procTable[pid % MAXPROC].pageTable[page].diskState = UNUSED;        
@@ -678,6 +691,7 @@ static int Pager(char *buf) {
 
     if (debugflag5) {
         printFrameTable();
+        PrintStats();
     }
     return 0;
 } /* Pager */
@@ -720,7 +734,9 @@ void switchReal(int old, int new) {
     }
 
     // update vmstats
+    sempReal(statSem);
     vmStats.switches++;
+    semvReal(statSem);
 
     // unmap the old's stuff
     if (procTable[old % MAXPROC].pageTable != NULL) {

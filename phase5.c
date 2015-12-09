@@ -428,6 +428,16 @@ static int Pager(char *buf) {
 
         int frame;
 
+        // TODO: check if first time page is accessed
+        if (procTable[pid % MAXPROC].pageTable[page].newFlag == 0) {
+            // increment vm stats
+            sempReal(statSem);
+            vmStatsmemnew++;
+            semvReal(statSem);
+
+            procTable[pid % MAXPROC].pageTable[page].newFlag = 1;
+        }
+
         // check if zapped while waiting
         if (isZapped()) {
             break;
@@ -581,12 +591,7 @@ static int Pager(char *buf) {
                 USLOSS_Halt(1);
             }
         }
-        else {
-            // inc new
-            sempReal(statSem);
-            vmStats.new++;
-            semvReal(statSem);
-        }
+
         // end mutual exclussion
         semvReal(frameSem);
 
@@ -707,6 +712,7 @@ void forkReal(int pid) {
         procTable[pid % MAXPROC].pageTable[i].frame = -1;
         procTable[pid % MAXPROC].pageTable[i].diskBlock = -1;
         procTable[pid % MAXPROC].pageTable[i].semaphore = semcreateReal(1); // TODO maybe start at 0
+        procTable[pid % MAXPROC].pageTable[i].newFlag = 0;
     }
 }
 

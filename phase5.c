@@ -70,6 +70,8 @@ static void mboxCondReceive(systemArgs *args);
 static void vmInit(systemArgs *args);
 static void vmDestroy(systemArgs *args);
 void setUserMode();
+void printFrameTable();
+void printPageTable(int pid);
 /*
  *----------------------------------------------------------------------
  *
@@ -437,6 +439,7 @@ static int Pager(char *buf) {
         // start mutual exclussion
         sempReal(frameSem);
         int wasInUse = 0;
+        int oldPage = -1;
         while (1) {
             // check if we are pointing beyond the edge of the array
             if (lastFrameIndex == numFrames) {
@@ -450,11 +453,16 @@ static int Pager(char *buf) {
                 if (frameTable[lastFrameIndex].pid != -1) {
                     wasInUse = 1;
                 }
+                oldPage = frameTable[lastFrameIndex].page;
                 frameTable[lastFrameIndex].state = CLOSED;
                 frameTable[lastFrameIndex].pid = pid;
                 frameTable[lastFrameIndex].page = page;
 
                 frame = lastFrameIndex;
+
+                if (debugflag5) {
+                    USLOSS_Console("Pager():\n\tnewPage: %d\n\toldPage: %d\n", page, oldPage);
+                }
 
                 // We have found our frame, break
                 lastFrameIndex++;
@@ -472,11 +480,8 @@ static int Pager(char *buf) {
          * Handle old page
          */
         // check if this frame was previously in use
-        if (wasInUse == 1) {
+        if (oldPage != -1) {
             // it was previously in use and needs to be written to the disk
-
-            // gain access to the frame
-            int oldPage = frameTable[frame].page;
 
             // map to oldPage for access
             if (debugflag5) {
@@ -493,14 +498,6 @@ static int Pager(char *buf) {
                 USLOSS_Console("Pager(): Map to oldpage: %d successful\n", oldPage);
                 USLOSS_Console("Pager(): replaced oldPage %d, frame %d\n", oldPage, frame);
             }
-
-            // inc page outs
-            sempReal(statSem);
-            vmStats.pageOuts++;
-            if (debugflag5) {
-                USLOSS_Console("vmStats.pageOuts = %d\n", vmStats.pageOuts);
-            }
-            semvReal(statSem);
 
             int accessPtr;
             USLOSS_MmuGetAccess(frame, &accessPtr);
@@ -529,6 +526,7 @@ static int Pager(char *buf) {
                 // get diskBlock to write to
                 Process tempProc = procTable[pid % MAXPROC];
                 int pageDiskBlock = tempProc.pageTable[oldPage].diskBlock;
+                procTable[pid % MAXPROC].pageTable[oldPage].diskBlock = pageDiskBlock;
 
                 if (pageDiskBlock == -1) {
                     //get a new block(sector) to store the page into
@@ -569,6 +567,9 @@ static int Pager(char *buf) {
             if (debugflag5) {
                 USLOSS_Console("Pager(): frame zeroed, unmapping old page\n");
             }
+
+            procTable[pid % MAXPROC].pageTable[oldPage].memState = UNUSED;
+            procTable[pid % MAXPROC].pageTable[oldPage].frame = -1;
 
             // Unmap the old page
             if (debugflag5) {
@@ -680,6 +681,8 @@ static int Pager(char *buf) {
         }
     }
 
+    printFrameTable();
+
     return 0;
 } /* Pager */
 
@@ -729,7 +732,7 @@ void switchReal(int old, int new) {
                 result = USLOSS_MmuUnmap(0, i);
                 if (result != USLOSS_MMU_OK) {
                     USLOSS_Console("process %d: switchReal failed unmap: %d\n", old, result);
-//                    USLOSS_Halt(1);
+                    USLOSS_Halt(1);
                 }
             }
         }
@@ -982,4 +985,15 @@ static void vmDestroy(systemArgs *args) {
 
 void setUserMode() {
     USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
+}
+
+void printFrameTable() {
+    USLOSS_Console("printFrameTable():\n\n");
+    for (int i = 0; i < numFrames; i++) {
+        USLOSS_Console("Frame %d <---- page %d\n", i, frameTable[i].page);
+    }
+}
+
+void printPageTable(int pid) {
+
 }

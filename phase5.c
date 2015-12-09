@@ -428,16 +428,6 @@ static int Pager(char *buf) {
 
         int frame;
 
-        // TODO: check if first time page is accessed
-        if (procTable[pid % MAXPROC].pageTable[page].newFlag == 0) {
-            // increment vm stats
-            sempReal(statSem);
-            vmStatsmemnew++;
-            semvReal(statSem);
-
-            procTable[pid % MAXPROC].pageTable[page].newFlag = 1;
-        }
-
         // check if zapped while waiting
         if (isZapped()) {
             break;
@@ -686,8 +676,9 @@ static int Pager(char *buf) {
         }
     }
 
-    printFrameTable();
-
+    if (debugflag5) {
+        printFrameTable();
+    }
     return 0;
 } /* Pager */
 

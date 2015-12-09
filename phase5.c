@@ -580,6 +580,12 @@ static int Pager(char *buf) {
                 USLOSS_Halt(1);
             }
         }
+        else {
+            // inc new
+            sempReal(statSem);
+            vmStats.new++;
+            semvReal(statSem);
+        }
         // end mutual exclussion
         semvReal(frameSem);
 
@@ -639,11 +645,6 @@ static int Pager(char *buf) {
             // TODO diskblock stuff
         }
         else {
-            // inc new
-            sempReal(statSem);
-            vmStats.new++;
-            semvReal(statSem);
-
             // map the memory
             result = USLOSS_MmuMap(0, page, frame, 3);
             if (result != USLOSS_MMU_OK) {
